@@ -87,7 +87,10 @@ class Body {
     }
 
     radius() {
-        return SUN_RADIUS * Math.pow(this.mass / SUN_MASS, 0.5);
+        return Math.min(
+            SUN_RADIUS * Math.pow(this.mass / SUN_MASS, 0.5),
+            0.05 * AU
+        );
     }
 
     collidesWith(b) {
@@ -103,7 +106,7 @@ class Body {
         let newCurrentMovement = this.movement
             .times(this.mass)
             .plus(b.movement.times(b.mass))
-            .times(1.0 / this.mass);
+            .times(1.0 / newMass);
         let newColor = Math.random() < 0.5 ? this.color : b.color;
         return new Body(newMass, newMassCenter, newCurrentMovement, newColor);
     }
@@ -259,22 +262,48 @@ class Simulation {
     }
 }
 
+function pauseSimulation(simulation, paused, pauseButton) {
+    paused = !paused;
+    if (paused) {
+        pauseButton.innerText = 'Play';
+        simulation.pause();
+    } else {
+        pauseButton.innerText = 'Pause';
+        simulation.start();
+    }
+    return paused;
+}
+
+function setCanvasSize(canvas, simulation) {
+    size = Math.min(window.innerWidth, window.innerHeight) * 0.8;
+    canvas.width = size;
+    canvas.height = size;
+    simulation.drawAllBodies();
+}
+
 function main() {
     let canvas = document.getElementById('simulation-canvas');
-    let simulation = new Simulation(canvas, 100);
+    let simulation = new Simulation(canvas, 200);
+    setCanvasSize(canvas, simulation);
+    simulation.bodies.push(
+        new Body(1_000_000 * SUN_MASS, new Vector2(AU, AU), new Vector2())
+    );
     let pauseButton = document.getElementById('pause-btn');
     let paused = true;
     simulation.drawAllBodies();
     pauseButton.addEventListener('click', () => {
-        paused = !paused;
-        if (paused) {
-            pauseButton.innerText = 'Play';
-            simulation.pause();
-        } else {
-            pauseButton.innerText = 'Pause';
-            simulation.start();
-        }
+        paused = pauseSimulation(simulation, paused, pauseButton);
     });
+    window.addEventListener(
+        'keydown',
+        (event) => {
+            if (event.code == 'Space') {
+                paused = pauseSimulation(simulation, paused, pauseButton);
+            }
+        },
+        true
+    );
+    window.addEventListener('resize', () => setCanvasSize(canvas, simulation));
 }
 
 main();
