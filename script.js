@@ -56,6 +56,7 @@ class Body {
         this.massCenter = massCenter;
         this.movement = movement;
         this.force = new Vector2();
+        this.markedForRemoval = false;
         if (color == undefined) {
             let i = Math.floor(Math.random() * BODY_COLORS.length);
             this.color = BODY_COLORS[i];
@@ -89,12 +90,16 @@ class Body {
         return SUN_RADIUS * Math.pow(this.mass / SUN_MASS, 0.5);
     }
 
+    collidesWith(b) {
+        return this.distanceTo(b) < this.radius() + b.radius();
+    }
+
     merge(b) {
         let newMass = this.mass + b.mass;
         let newMassCenter = this.massCenter
             .times(this.mass)
             .plus(b.massCenter.times(b.mass))
-            .times(1.0 / this.mass);
+            .times(1.0 / newMass);
         let newCurrentMovement = this.movement
             .times(this.mass)
             .plus(b.movement.times(b.mass))
@@ -122,20 +127,12 @@ class Painter {
         let color = b.color;
 
         // Converted to simultation space
-        let posX = (x / SIMULATION_WIDTH) * this.canvas.width;
-        let posY = (y / SIMULATION_HEIGHT) * this.canvas.height;
-        console.log('draw body at', posX, posY);
+        let posX = (x * this.canvas.width) / SIMULATION_WIDTH;
+        let posY = (y * this.canvas.height) / SIMULATION_HEIGHT;
         let radius = (this.canvas.width * b.radius()) / SIMULATION_WIDTH;
 
         this.context.beginPath();
-        this.context.arc(
-            posX,
-            posY,
-            Math.max(radius, 1.5),
-            0,
-            Math.PI * 2,
-            true
-        );
+        this.context.arc(posX, posY, radius, 0, Math.PI * 2, true);
         this.context.fillStyle = color;
         this.context.fill();
     }
@@ -151,20 +148,27 @@ class Simulation {
         this.interval = null;
 
         for (let i = 0; i < numberOfBodies; i++) {
-            let mass = 2 * SUN_MASS;
+            let mass = this.getRandomMass();
             let massCenter = this.getRandomPosition();
             let currentMovement = this.getRandomMovement();
             this.bodies[i] = new Body(mass, massCenter, currentMovement);
         }
 
-        canvas.addEventListener('click', (event) => {
-            console.log('x', event.clientX / canvas.width);
-            console.log('y', event.clientY / canvas.height);
-            let x = (event.clientX / canvas.width) * SIMULATION_WIDTH;
-            let y = (event.clientY / canvas.height) * SIMULATION_HEIGHT;
-            this.placeNewBody(x, y);
-            console.log(event);
-        });
+        canvas.addEventListener(
+            'click',
+            (event) => {
+                let xPixelSpace = event.pageX - this.canvas.offsetLeft;
+                let yPixelSpace = event.pageY - this.canvas.offsetTop;
+                let x = (xPixelSpace / canvas.width) * SIMULATION_WIDTH;
+                let y = (yPixelSpace / canvas.height) * SIMULATION_HEIGHT;
+                this.placeNewBody(x, y);
+            },
+            false
+        );
+    }
+
+    getRandomMass() {
+        return 5 * Math.random() * SUN_MASS;
     }
 
     getRandomPosition() {
@@ -176,8 +180,8 @@ class Simulation {
 
     getRandomMovement() {
         return new Vector2(
-            0.5 * Math.random() * (AU / 1000),
-            0.5 * Math.random() * (AU / 1000)
+            (Math.random() - 0.5) * (AU / 5000),
+            (Math.random() - 0.5) * (AU / 5000)
         );
     }
 
@@ -188,7 +192,6 @@ class Simulation {
         this.interval = setInterval(() => {
             this.calculateOneTick();
             this.drawAllBodies();
-            console.log('tick');
         }, 0);
     }
 
@@ -199,11 +202,9 @@ class Simulation {
     }
 
     placeNewBody(x, y) {
-        let mass = 2 * SUN_MASS;
+        let mass = this.getRandomMass();
         let massCenter = new Vector2(x, y);
         let currentMovement = this.getRandomMovement();
-        console.log('place body', massCenter);
-        // debugger;
         this.bodies.push(new Body(mass, massCenter, currentMovement));
     }
 
@@ -213,6 +214,33 @@ class Simulation {
     }
 
     calculateOneTick() {
+        // Merge colliding bodies
+        for (let i = 0; i < this.bodies.length; i++) {
+            let current = this.bodies[i];
+            let collidingBodies = [];
+            for (let j = 0; j < this.bodies.length; j++) {
+                let other = this.bodies[j];
+                if (
+                    i == j ||
+                    current.markedForRemoval ||
+                    other.markedForRemoval
+                ) {
+                    continue;
+                }
+                let body2 = this.bodies[j];
+                if (current.collidesWith(body2)) {
+                    body2.markedForRemoval = true;
+                    collidingBodies.push(body2);
+                }
+            }
+            if (collidingBodies.length > 0) {
+                collidingBodies.forEach((b) => (current = current.merge(b)));
+                this.bodies[i] = current;
+            }
+        }
+        this.bodies = this.bodies.filter((b) => !b.markedForRemoval);
+
+        // Calculate all forces
         for (let i = 0; i < this.bodies.length; i++) {
             let body1 = this.bodies[i];
             body1.force = new Vector2();
